@@ -1,41 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Pionix GmbH and Contributors to EVerest
 #include "OCPPExtensionExample.hpp"
+#include "everest/logging.hpp"
 
 namespace module {
+using ConfigChangeResult = Everest::config::ConfigChangeResult;
 
 void OCPPExtensionExample::init() {
-    invoke_init(*p_data_transfer);
+    EVLOG_info << "init";
+    if (p_data_transfer) {
+        invoke_init(*p_data_transfer);
+    } else {
+        EVLOG_error << "No data transfer object";
+    }
 }
 
 void OCPPExtensionExample::ready() {
+    EVLOG_info << "ready";
     invoke_ready(*p_data_transfer);
-
-    std::istringstream ss(this->config.keys_to_monitor);
-    std::vector<types::ocpp::ComponentVariable> component_variables;
-
-    std::string key;
-    while (std::getline(ss, key, ',')) {
-        // Push each token into the vector
-        component_variables.push_back({{""}, {key}}); // For OCPP1.6 we only need to specify the variable.name
-    }
-
-    // We register monitors for custom configuration keys here
-    this->r_ocpp->call_monitor_variables(component_variables);
+    event_keys_to_monitor();
 
     // anytime this configuration key is changed by the CSMS and we have
     // registered a monitor, this callback is executed
-    this->r_ocpp->subscribe_event_data([](types::ocpp::EventData event_data) {
-        // Add your custom handler here
-        EVLOG_info << "Configuration key: " << event_data.component_variable.variable.name
-                   << " has been changed by CSMS to: " << event_data.actual_value;
-    });
+    r_ocpp->subscribe_event_data([this](types::ocpp::EventData event_data) { event_key_updated(event_data); });
 
     std::vector<types::ocpp::SetVariableRequest> set_variable_requests;
     set_variable_requests.push_back({{{""}, {"ExampleConfigurationKey"}}, "ExampleValue"});
 
     EVLOG_info << "Setting custom configuration key...";
-    const auto set_variable_results = this->r_ocpp->call_set_variables(set_variable_requests, "example");
+    const auto set_variable_results = r_ocpp->call_set_variables(set_variable_requests, "example");
 
     for (const auto& set_variable_result : set_variable_results) {
         if (set_variable_result.status == types::ocpp::SetVariableStatusEnumType::Accepted) {
@@ -48,6 +41,7 @@ void OCPPExtensionExample::ready() {
 
     // adding a configuration key that does not exist to show that this will be
     // part of the unknown keys of the result
+    std::vector<types::ocpp::ComponentVariable> component_variables;
     component_variables.push_back({{""}, {"KeyThatIsNotConfigured"}});
 
     std::vector<types::ocpp::GetVariableRequest> get_variables_requests;
@@ -56,7 +50,7 @@ void OCPPExtensionExample::ready() {
     }
 
     EVLOG_info << "Requesting configuration keys from OCPP...";
-    const auto get_variables_results = this->r_ocpp->call_get_variables(get_variables_requests);
+    const auto get_variables_results = r_ocpp->call_get_variables(get_variables_requests);
 
     for (const auto& get_variables_result : get_variables_results) {
         if (get_variables_result.status == types::ocpp::GetVariableStatusEnumType::Accepted) {
@@ -70,7 +64,7 @@ void OCPPExtensionExample::ready() {
     types::ocpp::DataTransferRequest data_transfer_request;
     data_transfer_request.vendor_id = "EVerest";
     data_transfer_request.data.emplace("hi");
-    auto data_transfer_response = this->r_data_transfer->call_data_transfer(data_transfer_request);
+    auto data_transfer_response = r_data_transfer->call_data_transfer(data_transfer_request);
     switch (data_transfer_response.status) {
     case types::ocpp::DataTransferStatus::Accepted:
         EVLOG_info << "Data transfer was accepted";
@@ -88,6 +82,53 @@ void OCPPExtensionExample::ready() {
     default:
         break;
     }
+}
+
+void OCPPExtensionExample::event_keys_to_monitor() {
+    std::istringstream ss(config.keys_to_monitor);
+    std::vector<types::ocpp::ComponentVariable> component_variables;
+
+    monitored_keys.clear();
+    std::string key;
+    while (std::getline(ss, key, ',')) {
+        // Push each token into the vector
+        component_variables.push_back({"", key}); // For OCPP1.6 we only need to specify the variable.name
+        monitored_keys.insert(std::move(key));
+    }
+
+    // We register monitors for custom configuration keys here
+    r_ocpp->call_monitor_variables(component_variables);
+}
+
+void OCPPExtensionExample::event_key_updated(const types::ocpp::EventData& event_data) {
+    if (config.enable) {
+        const auto& name = event_data.component_variable.variable.name;
+        const auto& value = event_data.actual_value;
+        if (auto it = monitored_keys.find(name); it != monitored_keys.end()) {
+            EVLOG_info << "Configuration key: " << name << " has been changed by CSMS to: " << value;
+        }
+    }
+}
+
+ConfigChangeResult OCPPExtensionExample::on_enable_changed(const bool& value) {
+    rw_config.enable = value;
+    return ConfigChangeResult::Accepted();
+}
+
+ConfigChangeResult OCPPExtensionExample::on_poll_interval_changed(const double& value) {
+    rw_config.poll_interval = value;
+    return ConfigChangeResult::Accepted();
+}
+
+ConfigChangeResult OCPPExtensionExample::on_id_changed(const int& value) {
+    rw_config.id = value;
+    return ConfigChangeResult::Accepted();
+}
+
+ConfigChangeResult OCPPExtensionExample::on_keys_to_monitor_changed(const std::string& value) {
+    rw_config.keys_to_monitor = value;
+    event_keys_to_monitor();
+    return ConfigChangeResult::Accepted();
 }
 
 } // namespace module

@@ -120,7 +120,7 @@ config:
   cable_check_enable_imd_self_test_relays_open:
     description: >-
       Enable self testing of IMD at the beginning of cable check where the relays may still be open.
-      The voltage is set by the cable_check_relays_open_voltage_V config option and may differ from the 
+      The voltage is set by the cable_check_relays_open_voltage_V config option and may differ from the
       voltage that is later used to perform the isolation resistance sample.
       cable_check_wait_number_of_imd_measurements needs to be >=1 in this case as no isolation resistance checking
       can be performed at this stage.
@@ -253,17 +253,20 @@ config:
       "They can also be enabled/disabled during runtime on the random_delay implementation."
     type: boolean
     default: false
+    mutability: ReadWrite
   uk_smartcharging_random_delay_max_duration:
     description: >-
       "Start up value for the maximum duration of a random delay."
       "Can be modified during runtime on the random_delay implementation."
     type: integer
     default: 600
+    mutability: ReadWrite
   uk_smartcharging_random_delay_at_any_change:
     description: >-
       "True: use random delays on any current change during charging. False: Only use if current is reduced to zero or increased from zero."
     type: boolean
     default: true
+    mutability: ReadWrite
   initial_meter_value_timeout_ms:
     description: >-
       This timeout in ms defines for how long the EvseManager waits for an initial meter value from a powermeter before it becomes ready to start charging.
@@ -419,7 +422,7 @@ config:
     default: None
   hlc_charge_loop_without_energy_timeout_s:
     description: >-
-      Timeout (s) to allow HLC charge loop to continue without available energy; 
+      Timeout (s) to allow HLC charge loop to continue without available energy;
       when exceeded, the HLC session is stopped and PWM is disabled until energy returns.
       If set too long, some EVs stop the session on their own. Then it cannot be resumed
       when energy is available again.
