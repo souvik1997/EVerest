@@ -7,6 +7,7 @@
 
 #include "OCPPExtensionExample.hpp"
 #include "extended_module_adapter.hpp"
+#include "generated/types/ocpp.hpp"
 
 namespace {
 
@@ -48,6 +49,7 @@ protected:
 
     void SetUp() override {
         infrastructure_init();
+        adapter.clear();
     }
 
     void TearDown() override {
@@ -61,7 +63,15 @@ stubs::ExtendedModuleAdapter OCPPExtensionTest::adapter;
 
 TEST_F(OCPPExtensionTest, DataTransfer) {
     // call module->init() which is private
-    ModuleConfigs configs;
+    ModuleConfigs configs = R"({
+        "data_transfer": {},
+        "!module":{
+            "enable": true,
+            "poll_interval": 0.0,
+            "id": 0,
+            "keys_to_monitor": ""
+        }
+    })"_json;
     module::LdEverest::init(configs, module_info);
     // call module->ready() which is private
     module::LdEverest::ready();
@@ -75,6 +85,23 @@ TEST_F(OCPPExtensionTest, DataTransfer2) {
     // test the provided data_transfer interface
     auto result = module.call_data_transfer(R"({"request":{"data":"Hello","vendor_id":"EVerest"}})"_json);
     EXPECT_EQ(json_get(result, "status"), "Accepted");
+}
+
+TEST_F(OCPPExtensionTest, UpdateKeys) {
+    adapter.runtime_config_set("keys_to_monitor", "Heartbeat");
+    const auto log = adapter.get_module_publish_log();
+    ASSERT_EQ(log.size(), 1);
+    EXPECT_EQ(
+        log[0].msg,
+        R"({"data":{"response":{"status":"Accepted"},"status":"Ok","status_info":"","type":"Set"},"msg_type":"SetConfigResponse"})");
+
+    types::ocpp::EventData data;
+    data.component_variable.variable.name = "Heartbeat";
+    data.event_id = 0;
+    data.trigger = types::ocpp::EventTriggerEnum::Delta;
+    data.actual_value = "60";
+    data.event_notification_type = types::ocpp::EventNotificationType::HardWiredNotification;
+    module.var_event_data(data);
 }
 
 } // namespace

@@ -4,18 +4,152 @@
 #pragma once
 
 #include <framework/ModuleAdapter.hpp>
+#include <string>
 #include <utils/error/error_database.hpp>
 #include <utils/error/error_database_map.hpp>
 #include <utils/error/error_manager_req_global.hpp>
+#include <utils/mqtt_config_service.hpp>
 #include <utils/types.hpp>
 
 #include <ld-ev.hpp>
 
 #include <list>
 #include <map>
+#include <memory>
 #include <string_view>
+#include <vector>
 
 namespace stubs {
+
+class MQTTStub : public Everest::MQTTAbstraction {
+private:
+    const std::string m_everest_prefix{"everest/"};
+    const std::string m_external_prefix{"external/"};
+
+    std::map<std::string, std::shared_ptr<TypedHandler>> m_handlers;
+
+public:
+    using MQTTRequest = Everest::MQTTRequest;
+    using QOS = Everest::QOS;
+
+    struct publish_log_t {
+        std::string topic;
+        std::string msg;
+    };
+
+    std::vector<publish_log_t> publish_log;
+
+    void clear() {
+        publish_log.clear();
+    }
+
+    // ========================================================================
+    // methods called by the module
+
+    bool connect() override {
+        return true;
+    }
+    void disconnect() override {
+    }
+    void publish(const std::string& topic, const json& json) override {
+        // topics published from the module
+        auto msg = json.dump();
+        std::printf("publish(%s) %s\n", topic.c_str(), msg.c_str());
+        publish_log.push_back({topic, std::move(msg)});
+    }
+    void publish(const std::string& topic, const json& json, QOS qos, bool retain = false) override {
+        publish(topic, json);
+    }
+    void publish(const std::string& topic, const std::string& data) override {
+        try {
+            const auto obj = json::parse(data);
+            publish(topic, obj);
+        } catch (...) {
+        }
+    }
+    void publish(const std::string& topic, const std::string& data, QOS qos, bool retain = false) override {
+        publish(topic, data);
+    }
+    void subscribe(const std::string& topic) override {
+        std::printf("subscribe(%s)\n", topic.c_str());
+    }
+    void subscribe(const std::string& topic, QOS qos) override {
+        subscribe(topic);
+    }
+    void unsubscribe(const std::string& topic) override {
+        std::printf("unsubscribe(%s)\n", topic.c_str());
+    }
+    void clear_retained_topics() override {
+    }
+    json get(const std::string& topic, QOS qos, std::size_t retries = 0) override {
+        return {};
+    }
+    json get(const MQTTRequest& request, std::size_t retries = 0) override {
+        return {};
+    }
+    const std::string& get_everest_prefix() const override {
+        return m_everest_prefix;
+    }
+    const std::string& get_external_prefix() const override {
+        return m_external_prefix;
+    }
+    std::shared_future<void> spawn_main_loop_thread() override {
+        return {};
+    }
+    std::shared_future<void> get_main_loop_future() override {
+        return {};
+    }
+    void register_handler(const std::string& topic, std::shared_ptr<TypedHandler> handler, QOS qos) override {
+        std::printf("register(%s)\n", topic.c_str());
+        m_handlers.emplace(topic, std::move(handler));
+    }
+    void unregister_handler(const std::string& topic, const Token& token) override {
+        std::printf("unregister(%s)\n", topic.c_str());
+    }
+
+    // ========================================================================
+    // methods to interact with handlers
+
+    void call(HandlerType type, const std::string_view& topic, const json& obj) {
+        bool found{false};
+        const std::string tmp_topic{topic};
+        if (const auto it = m_handlers.find(tmp_topic); it != m_handlers.end()) {
+            if (it->second->type == type) {
+                std::printf("call(%s) %s\n", topic.data(), obj.dump().c_str());
+                (*it->second->handler)(tmp_topic, obj);
+                found = true;
+            }
+        }
+        if (!found) {
+            std::printf("no MQTT handler for %s (%d)\n", topic.data(), static_cast<int>(type));
+        }
+    }
+
+    void runtime_config_set(const std::string_view& topic, const json& obj) {
+        call(HandlerType::RuntimeConfigSet, topic, obj);
+    }
+
+    void runtime_config_set(const std::string_view& id, const std::string_view& name, const std::string& value) {
+        std::string topic{m_everest_prefix};
+        topic += "modules/";
+        topic += id;
+        topic += "/config/set_request";
+        // json obj = R"({
+        //     "identifier": {
+        //       "module_id": "",
+        //       "configuration_parameter_name": ""
+        //     },
+        //     "value": ""
+        // }
+        // )"_json;
+        Everest::config::SetRequest req;
+        req.identifier.module_id = id;
+        req.identifier.configuration_parameter_name = name;
+        req.value = value;
+        json obj = req;
+        call(HandlerType::RuntimeConfigSet, topic, obj);
+    }
+};
 
 class ErrorDatabaseStub : public Everest::error::ErrorDatabase {
 public:
@@ -59,8 +193,10 @@ public:
     using TelemetryMap = ::Everest::TelemetryMap;
 
 private:
-    std::string m_module_id;
-    std::string m_implementation_id;
+    // friend MQTTStub;
+
+    const std::string m_module_id{"module_id"};
+    const std::string m_implementation_id{"impl_id"};
     ImplementationIdentifier m_default_origin;
     std::shared_ptr<ErrorDatabase> m_error_database;
     std::shared_ptr<ErrorDatabaseMap> m_error_database_map;
@@ -72,7 +208,8 @@ private:
     std::shared_ptr<ErrorTypeMap> m_error_type_map;
     std::shared_ptr<ConfigServiceClient> m_config_service_client;
     std::map<std::string, Command> m_module_commands;
-
+    std::unordered_map<std::string, std::string> m_module_names;
+    std::shared_ptr<MQTTStub> m_mqtt;
     Hooks* handler{nullptr};
 
     Result call_fn(const Requirement&, const std::string& topic, Parameters value) {
@@ -84,9 +221,16 @@ private:
         }
         return result;
     }
-    void publish_fn(const std::string&, const std::string&, Value) {
+    void publish_fn(const std::string& topic, const std::string& id, Value val) {
+        std::string full_topic = m_mqtt->get_everest_prefix() + id + topic;
+        m_mqtt->publish(full_topic, val);
     }
-    void subscribe_fn(const Requirement&, const std::string& fn, ValueCallback) {
+    void subscribe_fn(const Requirement& req, const std::string& topic, ValueCallback cb) {
+        std::string full_topic = m_mqtt->get_everest_prefix() + req.id + topic;
+        const auto inner = [cb](const std::string&, Value arg) { cb(arg); };
+        const auto handler =
+            std::make_shared<TypedHandler>(HandlerType::SubscribeVar, std::make_shared<Handler>(inner));
+        m_mqtt->register_handler(full_topic, handler, MQTTStub::QOS::QOS2);
     }
     std::shared_ptr<ErrorManagerImpl> get_error_manager_impl_fn(const std::string&) {
         return m_error_manager;
@@ -109,12 +253,18 @@ private:
     std::shared_ptr<ErrorStateMonitor> get_error_state_monitor_req_fn(const Requirement&) {
         return m_error_state_monitor;
     }
-    void ext_mqtt_publish_fn(const std::string&, const std::string&) {
+    void ext_mqtt_publish_fn(const std::string& topic, const std::string& val) {
+        std::string full_topic = m_mqtt->get_external_prefix() + topic;
+        m_mqtt->publish(full_topic, val);
     }
-    std::function<void()> ext_mqtt_subscribe_fn(const std::string&, StringHandler) {
-        return nullptr;
+    std::function<void()> ext_mqtt_subscribe_fn(const std::string& topic, StringHandler) {
+        std::string full_topic = m_mqtt->get_external_prefix() + topic;
+        m_mqtt->subscribe(full_topic);
+        return {};
     }
     std::function<void()> ext_mqtt_subscribe_pair_fn(const std::string& topic, const StringPairHandler& handler) {
+        std::string full_topic = m_mqtt->get_external_prefix() + topic;
+        m_mqtt->subscribe(full_topic);
         return {};
     }
     void telemetry_publish_fn(const std::string&, const std::string&, const std::string&, const TelemetryMap&) {
@@ -128,6 +278,7 @@ private:
 
 public:
     ExtendedModuleAdapter() : m_default_origin(m_module_id, m_implementation_id) {
+        m_mqtt = std::make_shared<MQTTStub>();
         m_error_type_map = std::make_shared<ErrorTypeMap>();
         m_error_database_map = std::make_shared<ErrorDatabaseMap>();
         m_error_database = std::make_shared<ErrorDatabaseStub>();
@@ -140,6 +291,15 @@ public:
         m_error_manager_req = std::make_shared<ErrorManagerReq>(
             m_error_type_map, m_error_database_map, std::list<ErrorType>(),
             [](const ErrorType&, const ErrorCallback&, const ErrorCallback&) { std::printf("subscribe_error\n"); });
+        m_config_service_client = std::make_shared<ConfigServiceClient>(m_mqtt, m_module_id, m_module_names);
+    }
+
+    void clear() {
+        m_mqtt->clear();
+    }
+
+    const auto& get_module_publish_log() const {
+        return m_mqtt->publish_log;
     }
 
     operator ModuleAdapter() {
@@ -177,6 +337,28 @@ public:
         Hooks* tmp = handler;
         handler = ptr;
         return tmp;
+    }
+
+    // ========================================================================
+    // configuration support
+
+    void runtime_config_set(const std::string_view& name, const std::string& value) {
+        m_mqtt->runtime_config_set(m_module_id, name, value);
+    }
+
+    // ========================================================================
+    // MQTT publish - send the mgs to any subscribe handlers from the module
+
+    void mqtt_publish(HandlerType type, const std::string_view& topic, const json& obj) {
+        m_mqtt->call(type, topic, obj);
+    }
+
+    void mqtt_publish(HandlerType type, const std::string_view& topic, const std::string& msg) {
+        try {
+            auto obj = json::parse(msg);
+            mqtt_publish(type, topic, obj);
+        } catch (...) {
+        }
     }
 
     // ========================================================================
@@ -232,6 +414,11 @@ public:
 
     auto call_data_transfer(const json& args) {
         return m_adapter.call("data_transfer", args);
+    }
+
+    void var_event_data(const types::ocpp::EventData& data) {
+        json obj = data;
+        m_adapter.mqtt_publish(HandlerType::SubscribeVar, "everest/event_data", obj);
     }
 
 protected:

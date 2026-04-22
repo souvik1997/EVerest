@@ -38,7 +38,17 @@ TEST(OCPPExtension, Setup) {
     EVLOG_debug << res.value().dump();
     adapter.register_commands(commands);
     module.call_data_transfer(R"({"request":{"data":"Hello","vendor_id":"Pionix"}})"_json);
-    ModuleConfigs configs;
+
+    ModuleConfigs configs = R"({
+        "data_transfer": {},
+        "!module":{
+            "enable": true,
+            "poll_interval": 0.0,
+            "id": 0,
+            "keys_to_monitor": ""
+        }
+    })"_json;
+
     module::LdEverest::init(configs, module_info);
     module::LdEverest::ready();
     module.call_data_transfer(R"({"request":{"data":"Hello","vendor_id":"EVerest"}})"_json);
