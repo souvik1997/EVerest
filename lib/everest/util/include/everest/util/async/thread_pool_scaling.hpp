@@ -38,6 +38,8 @@ struct TrackedAction {
  * @brief Greedy scaling policy: grows whenever there is any backlog.
  */
 struct GreedyScaling {
+    /// @brief No supervisor thread required.
+    static constexpr bool requires_supervisor = false;
     /**
      * @brief Decides to grow if there is any backlog.
      * @param current_workers Number of threads currently in the registry.
@@ -56,6 +58,8 @@ struct GreedyScaling {
  * @brief Conservative scaling policy: grows only when backlog is significant.
  */
 struct ConservativeScaling {
+    /// @brief No supervisor thread required.
+    static constexpr bool requires_supervisor = false;
     static bool should_grow(std::size_t current_workers, std::size_t queue_size,
                             [[maybe_unused]] std::optional<std::chrono::steady_clock::time_point> oldest_task) {
         return queue_size > (current_workers * 2);
@@ -67,6 +71,8 @@ struct ConservativeScaling {
  * @tparam Limit The queue size threshold.
  */
 template <std::size_t Limit> struct FixedSizeScaling {
+    /// @brief No supervisor thread required.
+    static constexpr bool requires_supervisor = false;
     static bool should_grow([[maybe_unused]] std::size_t current_workers, std::size_t queue_size,
                             [[maybe_unused]] std::optional<std::chrono::steady_clock::time_point> oldest_arrival) {
         return queue_size >= Limit;
@@ -78,6 +84,8 @@ template <std::size_t Limit> struct FixedSizeScaling {
  * @tparam MaxWaitMs Maximum tolerable wait time in milliseconds.
  */
 template <std::size_t ThresholdMs = 10> struct LatencyScaling {
+    /// @brief Needs a supervisor thread.
+    static constexpr bool requires_supervisor = true;
     static bool should_grow([[maybe_unused]] std::size_t current_workers, std::size_t queue_size,
                             std::optional<std::chrono::steady_clock::time_point> oldest_arrival) {
         if (queue_size < 1 or not oldest_arrival.has_value()) {
@@ -148,7 +156,9 @@ public:
                 spawn_worker_internal(reg_h);
             }
         }
-        m_supervisor = std::thread([this] { run_supervisor(); });
+        if constexpr (ScalingPolicy::requires_supervisor) {
+            m_supervisor = std::thread([this] { run_supervisor(); });
+        }
     }
 
     /**
@@ -165,8 +175,10 @@ public:
 
         // 2. Join the supervisor before tearing down the worker list: the supervisor
         // can spawn new workers, and we must not race with the steal in step 3.
-        if (m_supervisor.joinable()) {
-            m_supervisor.join();
+        if constexpr (ScalingPolicy::requires_supervisor) {
+            if (m_supervisor.joinable()) {
+                m_supervisor.join();
+            }
         }
 
         // 3. Steal the active workers list. Explicitly clear the source so that any
