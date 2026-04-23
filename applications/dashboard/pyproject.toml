@@ -1,0 +1,10 @@
+[project]
+name = "dashboard"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110",
+    "paho-mqtt>=2.0,<3",
+    "pymodbus>=3.6,<3.7",
+    "uvicorn[standard]>=0.27",
+]
