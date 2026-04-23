@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EVerest + MeshEMS — EIOT Hackathon</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap');
+
+  :root {
+    --bg: #0a0e17;
+    --card: #131a2b;
+    --border: #1e2d4a;
+    --text: #e4e8f1;
+    --dim: #6b7a99;
+    --accent: #4f8eff;
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --orange: #f97316;
+    --red: #ef4444;
+    --purple: #a78bfa;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  .slide {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100vw;
+    padding: 60px 80px;
+    position: absolute;
+    top: 0; left: 0;
+    animation: fadeIn 0.4s ease;
+  }
+  .slide.active { display: flex; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .nav {
+    position: fixed; bottom: 20px; right: 30px;
+    display: flex; gap: 12px; z-index: 100;
+    align-items: center;
+  }
+  .nav button {
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 18px; border-radius: 6px;
+    cursor: pointer; font-size: 0.85em; font-family: inherit;
+  }
+  .nav button:hover { background: var(--border); }
+  .nav .page { color: var(--dim); font-size: 0.8em; }
+
+  .progress {
+    position: fixed; top: 0; left: 0; height: 3px;
+    background: var(--accent); transition: width 0.3s ease; z-index: 100;
+  }
+
+  h1 { font-size: 3.4em; font-weight: 900; line-height: 1.1; margin-bottom: 16px; }
+  h2 { font-size: 2.4em; font-weight: 700; margin-bottom: 24px; }
+  .subtitle { color: var(--dim); font-size: 1.15em; margin-bottom: 12px; max-width: 700px; }
+  .tag {
+    display: inline-block; padding: 4px 14px; border-radius: 20px;
+    font-size: 0.75em; font-weight: 600; margin: 4px;
+  }
+  .tag-blue { background: #1e3a5f; color: var(--accent); }
+  .tag-green { background: #0f2e1f; color: var(--green); }
+  .tag-yellow { background: #2e2400; color: var(--yellow); }
+  .tag-purple { background: #2a1f4e; color: var(--purple); }
+  .tag-orange { background: #2e1800; color: var(--orange); }
+
+  .center { text-align: center; }
+  .cols { display: flex; gap: 40px; width: 100%; }
+  .col { flex: 1; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+  }
+  .card p { color: var(--dim); font-size: 0.9em; line-height: 1.6; }
+
+  .stats { display: flex; gap: 60px; justify-content: center; margin-top: 32px; }
+  .stat { text-align: center; }
+  .stat-value { font-size: 2.8em; font-weight: 900; color: var(--accent); }
+  .stat-label { color: var(--dim); font-size: 0.85em; margin-top: 4px; }
+
+  .gradient-text {
+    background: linear-gradient(135deg, var(--accent), var(--purple), var(--green));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Simple flow diagram */
+  .simple-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin: 32px 0;
+    flex-wrap: wrap;
+  }
+  .sf-node {
+    background: var(--card);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    text-align: center;
+    min-width: 130px;
+  }
+  .sf-node-icon { font-size: 2em; margin-bottom: 6px; }
+  .sf-node-label { font-size: 0.95em; font-weight: 600; }
+  .sf-node-sub { font-size: 0.7em; color: var(--dim); margin-top: 4px; }
+  .sf-arrow {
+    font-size: 1.6em; color: var(--dim); padding: 0 12px;
+  }
+  .sf-node.yellow { border-color: var(--yellow); }
+  .sf-node.blue { border-color: var(--accent); }
+  .sf-node.purple { border-color: var(--purple); }
+  .sf-node.green { border-color: var(--green); }
+  .sf-node.orange { border-color: var(--orange); }
+
+  /* Scenario */
+  .scenario {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 40px;
+    max-width: 800px;
+    width: 100%;
+    margin-top: 24px;
+  }
+  .scenario-step {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 0;
+  }
+  .scenario-step + .scenario-step { border-top: 1px solid #1e2d4a; }
+  .scenario-icon { font-size: 1.8em; min-width: 50px; text-align: center; }
+  .scenario-text { font-size: 1.05em; }
+  .scenario-text strong { color: var(--text); }
+  .scenario-text span { color: var(--dim); }
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+
+<!-- Slide 1: Title -->
+<div class="slide active center" id="s1">
+  <div class="subtitle" style="max-width:none;">EIOT Hackathon &mdash; April 22&ndash;23, 2026</div>
+  <h1><span class="gradient-text">Solar-Integrated<br>EV Charging</span></h1>
+  <p style="color:var(--dim); margin-top:24px; font-size:1.15em; max-width:700px;">
+    Bridging hardware EVSE controllers to the EVerest open-source charging stack<br>
+    with SunSpec solar integration and real-time energy management
+  </p>
+  <div style="margin-top:40px;">
+    <span class="tag tag-yellow">SunSpec</span>
+    <span class="tag tag-blue">EV Charging</span>
+    <span class="tag tag-purple">EVerest</span>
+    <span class="tag tag-orange">ESP32</span>
+    <span class="tag tag-green">Open Source</span>
+  </div>
+  <p style="color:var(--dim); margin-top:48px; font-size:0.9em;">Souvik Banerjee &amp; Sunita Bhattacharya</p>
+</div>
+
+<!-- Slide 2: The Problem & Solution -->
+<div class="slide center" id="s2">
+  <h2>The Problem</h2>
+  <div class="cols" style="max-width:900px; margin-bottom:40px;">
+    <div class="card" style="padding:20px;">
+      <p style="text-align:center; font-size:1.4em; margin-bottom:6px;">&#9889;</p>
+      <p><strong style="color:var(--text);">EV Chargers are Siloed</strong><br><span style="font-size:0.85em;">Can't talk to cloud systems, energy managers, or solar inverters</span></p>
+    </div>
+    <div class="card" style="padding:20px;">
+      <p style="text-align:center; font-size:1.4em; margin-bottom:6px;">&#9788;</p>
+      <p><strong style="color:var(--text);">Solar Goes to Waste</strong><br><span style="font-size:0.85em;">No standard way to feed solar availability into charging decisions</span></p>
+    </div>
+    <div class="card" style="padding:20px;">
+      <p style="text-align:center; font-size:1.4em; margin-bottom:6px;">&#9881;</p>
+      <p><strong style="color:var(--text);">No Unified Standard</strong><br><span style="font-size:0.85em;">Energy managers can't discover or control most chargers</span></p>
+    </div>
+  </div>
+
+  <h2 style="margin-bottom:16px;">Our Solution</h2>
+
+  <div class="simple-flow" style="margin:0;">
+    <div class="sf-node yellow" style="padding:14px 18px;">
+      <div class="sf-node-icon" style="font-size:1.6em;">&#9788;</div>
+      <div class="sf-node-label" style="font-size:0.85em;">Solar</div>
+    </div>
+    <div class="sf-arrow" style="font-size:1.3em; padding:0 8px;">&rarr;</div>
+    <div class="sf-node orange" style="padding:14px 18px;">
+      <div class="sf-node-icon" style="font-size:1.6em;">&#128225;</div>
+      <div class="sf-node-label" style="font-size:0.85em;">ESP32</div>
+    </div>
+    <div class="sf-arrow" style="font-size:1.3em; padding:0 8px;">&rarr;</div>
+    <div class="sf-node purple" style="padding:14px 18px;">
+      <div class="sf-node-icon" style="font-size:1.6em;">&#9879;</div>
+      <div class="sf-node-label" style="font-size:0.85em;">EVerest</div>
+    </div>
+    <div class="sf-arrow" style="font-size:1.3em; padding:0 8px;">&rarr;</div>
+    <div class="sf-node orange" style="padding:14px 18px;">
+      <div class="sf-node-icon" style="font-size:1.6em;">&#128225;</div>
+      <div class="sf-node-label" style="font-size:0.85em;">ESP32</div>
+    </div>
+    <div class="sf-arrow" style="font-size:1.3em; padding:0 8px;">&rarr;</div>
+    <div class="sf-node blue" style="padding:14px 18px;">
+      <div class="sf-node-icon" style="font-size:1.6em;">&#9889;</div>
+      <div class="sf-node-label" style="font-size:0.85em;">Charger</div>
+    </div>
+    <div class="sf-arrow" style="font-size:1.3em; padding:0 8px;">&larr;</div>
+    <div class="sf-node green" style="padding:14px 18px;">
+      <div class="sf-node-icon" style="font-size:1.6em;">&#127760;</div>
+      <div class="sf-node-label" style="font-size:0.85em;">EMS</div>
+    </div>
+  </div>
+
+  <p style="color:var(--dim); margin-top:20px; font-size:0.95em; max-width:650px;">
+    Open-source software and open standards connect solar, charger, and energy management &mdash; automatically.
+  </p>
+</div>
+
+<!-- Slide 3: Solar Intelligence -->
+<div class="slide center" id="s3">
+  <h2>Solar-Aware Charging</h2>
+  <p class="subtitle">The charger follows the sun in real time</p>
+
+  <div class="scenario">
+    <div class="scenario-step">
+      <div class="scenario-icon">&#9788;</div>
+      <div class="scenario-text">
+        <strong>Solar panels are producing 3,200 watts</strong><br>
+        <span>The system reads this from the inverter every 3 seconds</span>
+      </div>
+    </div>
+    <div class="scenario-step">
+      <div class="scenario-icon">&#128267;</div>
+      <div class="scenario-text">
+        <strong>Battery is at 85% charge (8.5 kWh available)</strong><br>
+        <span>Battery state is read alongside solar production</span>
+      </div>
+    </div>
+    <div class="scenario-step">
+      <div class="scenario-icon">&#9879;</div>
+      <div class="scenario-text">
+        <strong>EVerest sets the charger to 13.3 amps</strong><br>
+        <span>3,200W &divide; 240V = 13.3A &mdash; matches solar exactly</span>
+      </div>
+    </div>
+    <div class="scenario-step">
+      <div class="scenario-icon">&#9889;</div>
+      <div class="scenario-text">
+        <strong>Your EV charges from sunshine, not the grid</strong><br>
+        <span>When clouds pass, the current drops. When the sun returns, it ramps back up.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-value" style="color:var(--yellow);">3s</div>
+      <div class="stat-label">Solar update interval</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" style="color:var(--green);">32A</div>
+      <div class="stat-label">Max charge rate</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" style="color:var(--accent);">240V</div>
+      <div class="stat-label">Single phase AC</div>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 4: Live Demo -->
+<div class="slide center" id="s4">
+  <h2>Live Demo</h2>
+  <p class="subtitle">Watch solar power flow into the EV charger in real time</p>
+
+  <div class="simple-flow" style="margin:40px 0;">
+    <div class="sf-node yellow">
+      <div class="sf-node-icon">&#9788;</div>
+      <div class="sf-node-label">Solar</div>
+      <div class="sf-node-sub">producing power</div>
+    </div>
+    <div class="sf-arrow" style="color:var(--yellow);">&xrarr;</div>
+    <div class="sf-node purple">
+      <div class="sf-node-icon">&#9879;</div>
+      <div class="sf-node-label">EVerest</div>
+      <div class="sf-node-sub">adjusts limits</div>
+    </div>
+    <div class="sf-arrow" style="color:var(--accent);">&xrarr;</div>
+    <div class="sf-node blue">
+      <div class="sf-node-icon">&#9889;</div>
+      <div class="sf-node-label">Charger</div>
+      <div class="sf-node-sub">charges at solar rate</div>
+    </div>
+  </div>
+
+  <div class="card" style="max-width:600px; text-align:center;">
+    <p style="font-size:1.4em; margin-bottom:8px;"><strong>Dashboard</strong></p>
+    <p style="font-size:1.2em; color:var(--accent); margin-bottom:12px;"><code>http://localhost:8080</code></p>
+    <p>Solar production, battery level, charging state, and live charts</p>
+  </div>
+</div>
+
+<!-- Slide 5: Thank You -->
+<div class="slide center" id="s5">
+  <h1><span class="gradient-text">Thank You</span></h1>
+
+  <div style="margin-top:32px; max-width:600px;">
+    <div class="card" style="text-align:left; padding:28px 32px;">
+      <p style="color:var(--text); font-size:1em; line-height:1.8;">
+        <strong>Built with:</strong> EVerest (Linux Foundation Energy), ESP32 microcontrollers, SunSpec open standard, MQTT messaging<br><br>
+        <strong>What it does:</strong> Reads solar production and battery state, automatically adjusts EV charging current to match &mdash; all using open-source software and open standards.
+      </p>
+    </div>
+  </div>
+
+  <div style="margin-top:32px; color:var(--dim); font-size:1em;">
+    <p><strong style="color:var(--text);">Souvik Banerjee</strong> &amp; <strong style="color:var(--text);">Sunita Bhattacharya</strong></p>
+    <p style="margin-top:16px;">
+      <span class="tag tag-blue">github.com/souvik1997/EVerest</span>
+      <span class="tag tag-orange">github.com/energy-iot/meshems</span>
+    </p>
+    <p style="margin-top:12px; font-size:0.85em;">Branch: <code>eiot_hackathon</code></p>
+  </div>
+</div>
+
+<!-- Navigation -->
+<div class="nav">
+  <button onclick="prev()">&larr; Prev</button>
+  <span class="page" id="page-num">1 / 5</span>
+  <button onclick="next()">Next &rarr;</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let current = 0;
+
+  function show(n) {
+    slides[current].classList.remove('active');
+    current = Math.max(0, Math.min(n, slides.length - 1));
+    slides[current].classList.add('active');
+    document.getElementById('page-num').textContent = `${current + 1} / ${slides.length}`;
+    document.getElementById('progress').style.width = `${((current + 1) / slides.length) * 100}%`;
+  }
+
+  function next() { show(current + 1); }
+  function prev() { show(current - 1); }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
+  });
+
+  show(0);
+</script>
+</body>
+</html>
