@@ -45,17 +45,27 @@ This work connects an EKEPC2 EV charging controller to the EVerest charging fram
          │        ▼                                                │
          │  ┌──────────────────┐     ┌────────────────────────┐     │
          │  │ EnergyNode       │◀─── │ PySunSpecSolarClient   │     │
-         │  │ (grid connection │      │ (reads solar inverter │     │
-         │  │  point, 32A/1φ)  │    │  via Modbus TCP :5020)  │     │
-         │  └─────┬────────────┘    └────────────┬───────────┘     │
-         │        │                              │                 │
-         │        ▼                              ▼                 │
-         │  ┌───────────────┐         ┌────────────────────┐       │
-         │  │ EnergyManager │         │ Solar Inverter     │       │
-         │  │ (adjusts EVSE │         │ (real or simulated │       │
-         │  │  current)     │         │  on port 5020)     │       │
-         │  └───────────────┘         └────────────────────┘       │
-         └─────────────────────────────────────────────────────────┘
+         │  │ (grid connection │      │ (reads solar inverter  │     │
+         │  │  point, 32A/1φ)  │    │  via Modbus TCP :8502)  │     │
+         │  └─────┬────────────┘    └─────┬──────────┬────────┘     │
+         │        │                       │          │               │
+         │        ▼                       │   publishes to           │
+         │  ┌───────────────┐             │   ems/solar/state        │
+         │  │ EnergyManager │             │          │               │
+         │  │ (adjusts EVSE │             ▼          ▼               │
+         │  │  current)     │   ┌──────────────┐  ┌────────────┐    │
+         │  └───────────────┘   │ Sol-Ark via  │  │ External   │    │
+         │                      │ ESP32 gateway│  │ MQTT Broker│    │
+         │                      │ :8502        │  └──────┬─────┘    │
+         │                      └──────────────┘         │          │
+         └───────────────────────────────────────────────┼──────────┘
+                                                         │
+                                                         ▼
+                                              ┌────────────────────┐
+                                              │ EMS Dashboard      │
+                                              │ http://localhost   │
+                                              │ :8080              │
+                                              └────────────────────┘
 ```
 
 ## What Was Built
@@ -105,9 +115,15 @@ Live data fields served in Model 101:
 
 An EVerest module that reads a SunSpec-compliant solar inverter over Modbus TCP and feeds the available solar power into EVerest's energy tree as external limits. This allows the EnergyManager to dynamically adjust the EVSE charging current based on how much solar power is available.
 
-- Polls solar inverter every 3 seconds
-- Reads Model 101 (single-phase) or Model 103 (three-phase) registers
+- Polls solar inverter every 3 seconds via Modbus TCP
+- Reads SunSpec Model 701 (DER AC Measurement) for solar power, voltage, current
+- Reads SunSpec Model 713 (Battery) for battery SoC, rated/available Wh
 - Calls `set_external_limits` on the grid connection EnergyNode
+- **Republishes solar state to external MQTT** (`ems/solar/state`) for the dashboard, including:
+  - `power_w`, `voltage`, `current`, `state`, `inv_state`, `producing`
+  - `battery_soc`, `battery_wh_rated`, `battery_wh_avail` (when Model 713 is present)
+
+Target inverter: Sol-Ark via ESP32 SunSpec gateway at `192.168.94.229:8502`
 
 ### 4. Solar Inverter Simulator (`sunspec_solar_sim.py`)
 
@@ -115,7 +131,36 @@ An EVerest module that reads a SunSpec-compliant solar inverter over Modbus TCP 
 
 A test tool that simulates a solar inverter producing variable power on a sine curve (day cycle compressed to minutes). Serves SunSpec Model 1 + Model 101 on Modbus TCP port 5020. Used for testing the PySunSpecSolarClient without real solar hardware.
 
-### 5. ESP32 Firmware Changes (meshems)
+### 5. Live EMS Dashboard
+
+**Files:** `applications/dashboard/`
+
+A Python web dashboard (served on `http://localhost:8080`) that visualizes live system state by subscribing to MQTT topics. Purely a subscriber — no conflicts with EVerest's polling.
+
+MQTT topics consumed:
+| Topic | Publisher | Content |
+|-------|-----------|---------|
+| `ems/solar/state` | PySunSpecSolarClient | Solar power, battery SoC |
+| `evse/{device_id}/evse` | ESP32 firmware | EVSE charging state, current, power |
+| `evse/{device_id}/cmd` | PyEKEPC2Bridge | Commands sent to EVSE |
+| `evse/{device_id}/cmd_ack` | ESP32 firmware | Command acknowledgements |
+
+What it shows:
+- **Solar Production** — current PV output in watts, inverter state
+- **Battery** — SoC percentage with fill bar, kWh available/rated
+- **EV Charger** — state (idle/connected/charging), current draw, temperature
+- **Charge Limit** — amps EVerest is allowing the EV to draw
+- **Time-series chart** — solar vs EV charging overlaid, battery SoC over last ~8 minutes
+
+To run:
+```bash
+cd applications/dashboard
+pip install -r requirements.txt
+python dashboard.py
+# Open http://localhost:8080
+```
+
+### 6. ESP32 Firmware Changes (meshems)
 
 **Repo:** `github.com/energy-iot/meshems` branch `eiot_hackathon`
 
@@ -148,7 +193,8 @@ Key settings:
 - Device ID: `EKEPC2-DDS238_A4E8F8`
 - External MQTT broker: `host.docker.internal:1883`
 - Max charging current: 32A, single phase
-- Solar inverter: `localhost:5020`
+- Solar inverter: `192.168.94.229:8502` (Sol-Ark via ESP32 SunSpec gateway)
+- Solar MQTT republish topic: `ems/solar/state`
 
 ## Docker Services
 
@@ -183,13 +229,15 @@ docker compose --profile sil exec mqtt-server mosquitto_sub -t "everest/#" -v
 
 | Hop | Protocol | From | To |
 |-----|----------|------|----|
-| 1 | Modbus RTU (RS-485) | EKEPC2 EVSE | ESP32 |
-| 2 | MQTT JSON (WiFi) | ESP32 | External broker |
+| 1 | Modbus RTU (RS-485) | EKEPC2 EVSE | ESP32 (EVSE bridge) |
+| 2 | MQTT JSON (WiFi) | ESP32 | External MQTT broker |
 | 3 | MQTT JSON (Docker network) | External broker | PyEKEPC2Bridge |
 | 4 | EVerest internal MQTT | PyEKEPC2Bridge | EvseManager + SunSpec bridge |
 | 5 | Modbus TCP (port 502) | External EMS (master) | SunSpec bridge (server) |
-| 6 | Modbus TCP (port 5020) | PySunSpecSolarClient (master) | Solar inverter/sim (server) |
+| 6 | Modbus TCP (port 8502) | PySunSpecSolarClient (master) | Sol-Ark via ESP32 gateway |
 | 7 | EVerest `set_external_limits` | PySunSpecSolarClient | EnergyNode → EnergyManager |
+| 8 | MQTT JSON (`ems/solar/state`) | PySunSpecSolarClient | External MQTT broker |
+| 9 | MQTT subscribe | External broker | EMS Dashboard (http://localhost:8080) |
 
 ## Contributors
 
