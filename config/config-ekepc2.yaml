@@ -1,0 +1,94 @@
+# EVerest configuration for EKEPC2 EVSE controller via ESP32 MQTT bridge.
+#
+# Usage: manager --config config-ekepc2.yaml
+#
+# Prerequisites:
+#   - ESP32 running ems-dev firmware with expanded telemetry and command handler
+#   - ESP32 connected to EKEPC2 via RS485 Modbus RTU
+#   - External MQTT broker accessible at ext_broker_host:ext_broker_port
+#
+settings:
+  telemetry_enabled: true
+
+active_modules:
+  ekepc2_bridge:
+    module: PyEKEPC2Bridge
+    mapping:
+      module:
+        evse: 1
+    config_module:
+      device_id: "EKEPC2-DDS238_A4E8F8"
+      ext_broker_host: "host.docker.internal"
+      ext_broker_port: 1883
+      ext_broker_user: "mqttuser"
+      ext_broker_pass: "sunspec2025"
+      max_current_A: 32
+      num_phases: 1
+      staleness_timeout_s: 10.0
+
+  connector_1:
+    module: EvseManager
+    mapping:
+      module:
+        evse: 1
+    config_module:
+      connector_id: 1
+      evse_id: "1"
+      charge_mode: AC
+      session_logging: true
+      session_logging_path: /tmp/everest-logs
+    connections:
+      bsp:
+        - module_id: ekepc2_bridge
+          implementation_id: board_support
+      powermeter_grid_side:
+        - module_id: ekepc2_bridge
+          implementation_id: powermeter
+
+  energy_manager:
+    module: EnergyManager
+    connections:
+      energy_trunk:
+        - module_id: grid_connection_point
+          implementation_id: energy_grid
+
+  grid_connection_point:
+    module: EnergyNode
+    config_module:
+      fuse_limit_A: 32.0
+      phase_count: 1
+    connections:
+      energy_consumer:
+        - module_id: connector_1
+          implementation_id: energy_grid
+
+  auth:
+    module: Auth
+    config_module:
+      connection_timeout: 10
+      selection_algorithm: FindFirst
+    connections:
+      evse_manager:
+        - module_id: connector_1
+          implementation_id: evse
+      token_provider:
+        - module_id: token_provider
+          implementation_id: main
+      token_validator:
+        - module_id: token_validator
+          implementation_id: main
+
+  token_provider:
+    module: DummyTokenProviderManual
+
+  token_validator:
+    module: DummyTokenValidator
+
+  error_history:
+    module: ErrorHistory
+    config_implementation:
+      error_history:
+        database_path: /tmp/error_history_ekepc2.db
+
+  persistent_store:
+    module: PersistentStore

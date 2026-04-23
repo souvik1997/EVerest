@@ -1,0 +1,52 @@
+description: >-
+  Bridge module for EKEPC2 EVSE controller via ESP32 MQTT bridge.
+  Translates EVerest evse_board_support commands to MQTT JSON commands
+  for the ESP32, and maps EVSE telemetry back to EVerest CP state events.
+config:
+  device_id:
+    description: >-
+      ESP32 device ID used in MQTT topics, e.g. EKEPC2-DDS238_A1B2C3.
+      Find this in the ESP32 serial output at boot.
+    type: string
+    default: "EKEPC2-DDS238_UNKNOWN"
+  ext_broker_host:
+    description: External MQTT broker hostname (ESP32 broker)
+    type: string
+    default: "192.168.95.83"
+  ext_broker_port:
+    description: External MQTT broker port
+    type: integer
+    default: 1883
+  ext_broker_user:
+    description: External MQTT broker username
+    type: string
+    default: "mqttuser"
+  ext_broker_pass:
+    description: External MQTT broker password
+    type: string
+    default: "sunspec2025"
+  max_current_A:
+    description: Maximum current rating of the EVSE in amps
+    type: number
+    default: 32
+  num_phases:
+    description: Number of phases (1 or 3)
+    type: integer
+    default: 1
+  staleness_timeout_s:
+    description: Seconds without telemetry before declaring error state
+    type: number
+    default: 10.0
+provides:
+  board_support:
+    interface: evse_board_support
+    description: EVSE board support bridged from EKEPC2 via ESP32
+  powermeter:
+    interface: powermeter
+    description: Power metering from EKEPC2/DDS238 meter
+enable_external_mqtt: true
+enable_telemetry: true
+metadata:
+  license: https://opensource.org/licenses/Apache-2.0
+  authors:
+    - EMS Dev Team
