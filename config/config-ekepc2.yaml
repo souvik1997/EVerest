@@ -92,3 +92,15 @@ active_modules:
 
   persistent_store:
     module: PersistentStore
+
+  solar_client:
+    module: PySunSpecSolarClient
+    config_module:
+      sunspec_host: "localhost"
+      sunspec_port: 5020
+      poll_interval_s: 3.0
+      nominal_voltage_V: 240.0
+    connections:
+      energy_node_external_limits:
+        - module_id: grid_connection_point
+          implementation_id: external_limits

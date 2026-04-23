@@ -1,0 +1,36 @@
+description: >-
+  Reads a SunSpec-compliant solar inverter via Modbus TCP and publishes
+  available power as external energy limits to EVerest's energy tree.
+  This allows EnergyManager to adjust EV charging current based on
+  solar production.
+config:
+  sunspec_host:
+    description: Hostname/IP of the SunSpec Modbus TCP device (solar inverter)
+    type: string
+    default: "localhost"
+  sunspec_port:
+    description: Modbus TCP port of the SunSpec device
+    type: integer
+    default: 5020
+  poll_interval_s:
+    description: How often to poll the inverter (seconds)
+    type: number
+    default: 3.0
+  nominal_voltage_V:
+    description: Nominal AC voltage for current calculations
+    type: number
+    default: 240.0
+requires:
+  energy_node_external_limits:
+    interface: external_energy_limits
+    min_connections: 1
+    max_connections: 1
+provides:
+  main:
+    interface: empty
+    description: No provided interface, this module only pushes limits
+enable_telemetry: true
+metadata:
+  license: https://opensource.org/licenses/Apache-2.0
+  authors:
+    - EMS Dev Team
