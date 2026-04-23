@@ -6,6 +6,7 @@
 # Uses small targeted reads because some gateways (ESP32, etc.) can't handle
 # large 150+ register reads that pysunspec2's model.read() performs.
 
+import json
 import struct
 import threading
 import time
@@ -18,6 +19,8 @@ try:
 except ImportError:
     log.error("pymodbus not installed. Run: pip install pymodbus")
     raise
+
+import paho.mqtt.client as mqtt
 
 # SunSpec Model 701 payload field offsets (after 2-reg header)
 M701_ACTYPE = 0
@@ -59,9 +62,17 @@ class PySunSpecSolarClient:
         self._poll_interval = cfg['poll_interval_s']
         self._nominal_voltage = cfg['nominal_voltage_V']
 
+        self._pub_host = cfg.get('mqtt_publish_host', '')
+        self._pub_port = cfg.get('mqtt_publish_port', 1883)
+        self._pub_user = cfg.get('mqtt_publish_user', '')
+        self._pub_pass = cfg.get('mqtt_publish_pass', '')
+        self._pub_topic = cfg.get('mqtt_publish_topic', 'ems/solar/state')
+        self._pub_client = None
+
         self._mod = m
         self._client = None
-        self._model_base = None  # register offset of Model 701 payload
+        self._model_base = None      # register offset of Model 701 payload
+        self._model_713_base = None  # register offset of Model 713 (battery) payload
         self._w_sf = 0
         self._v_sf = 0
         self._a_sf = 0
@@ -75,6 +86,18 @@ class PySunSpecSolarClient:
 
     def _ready(self):
         log.info(f"PySunSpecSolarClient ready. Inverter at {self._host}:{self._port}")
+        # Start MQTT publisher for dashboards
+        self._pub_client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id="everest-solar-publisher",
+        )
+        if self._pub_user:
+            self._pub_client.username_pw_set(self._pub_user, self._pub_pass)
+        self._pub_client.reconnect_delay_set(min_delay=1, max_delay=30)
+        self._pub_client.connect_async(self._pub_host, self._pub_port)
+        self._pub_client.loop_start()
+        log.info(f"MQTT publisher -> {self._pub_host}:{self._pub_port} topic='{self._pub_topic}'")
+
         t = threading.Thread(target=self._poll_loop, daemon=True)
         t.start()
 
@@ -121,6 +144,8 @@ class PySunSpecSolarClient:
                 log.info(f"Found Model {mid}, length {mlen} at offset {offset}")
                 if mid == 701:
                     self._model_base = offset + 2
+                elif mid == 713:
+                    self._model_713_base = offset + 2
                 offset += 2 + mlen
 
             if self._model_base is None:
@@ -149,9 +174,8 @@ class PySunSpecSolarClient:
             return False
 
     def _read_solar(self):
-        """Read key Model 701 fields in one small block."""
+        """Read key Model 701 fields + Model 713 battery in small blocks."""
         try:
-            # Read offsets 0..16 (17 registers) - covers St, InvSt, W, A, LLV, LNV, Hz
             regs = self._read_regs(self._model_base, 17)
         except Exception as e:
             log.error(f"Read failed: {e}")
@@ -169,7 +193,7 @@ class PySunSpecSolarClient:
         current_a = apply_sf(a_raw, self._a_sf)
         voltage = apply_sf(llv_raw, self._v_sf) or self._nominal_voltage
 
-        return {
+        result = {
             "power_w": power_w,
             "current": current_a,
             "voltage": voltage,
@@ -177,6 +201,32 @@ class PySunSpecSolarClient:
             "inv_state": inv_st,
             "producing": power_w > 0,
         }
+
+        # Model 713 payload (7 regs, after header):
+        # [0] WHRtg, [1] WHAvail, [2] SoC, [3] SoH, [4] Status, [5] WH_SF, [6] Pct_SF
+        if self._model_713_base is not None:
+            try:
+                bregs = self._read_regs(self._model_713_base, 7)
+                wh_sf = s16(bregs[5])
+                pct_sf = s16(bregs[6])
+                result["battery_wh_rated"] = apply_sf(bregs[0], wh_sf)
+                result["battery_wh_avail"] = apply_sf(bregs[1], wh_sf)
+                result["battery_soc"] = apply_sf(bregs[2], pct_sf)
+            except Exception as e:
+                log.warning(f"Battery read failed: {e}")
+
+        return result
+
+    def _publish_solar(self, solar):
+        """Publish solar state JSON to the external MQTT broker."""
+        if self._pub_client is None:
+            return
+        payload = dict(solar)
+        payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+        try:
+            self._pub_client.publish(self._pub_topic, json.dumps(payload), qos=0)
+        except Exception as e:
+            log.warning(f"MQTT publish failed: {e}")
 
     def _set_energy_limits(self, solar_power_w):
         if self._limits_fulfillment is None:
@@ -221,15 +271,19 @@ class PySunSpecSolarClient:
 
                 solar = self._read_solar()
                 if solar:
+                    soc_str = (f" SoC={solar['battery_soc']:.1f}%"
+                               if solar.get('battery_soc') is not None else "")
                     log.info(
                         f"Solar: {solar['power_w']:+.0f}W  "
                         f"{solar['voltage']:.0f}V  {solar['current']:.2f}A  "
                         f"(St={solar['state']} InvSt={solar['inv_state']} "
-                        f"{'producing' if solar['producing'] else 'idle'})"
+                        f"{'producing' if solar['producing'] else 'idle'}){soc_str}"
                     )
                     self._set_energy_limits(solar['power_w'])
+                    self._publish_solar(solar)
                 else:
                     self._set_energy_limits(0)
+                    self._publish_solar({"power_w": 0, "producing": False})
             except Exception as e:
                 log.error(f"Poll error: {e}")
                 self._client = None

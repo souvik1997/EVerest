@@ -20,6 +20,26 @@ config:
     description: Nominal AC voltage for current calculations
     type: number
     default: 240.0
+  mqtt_publish_host:
+    description: External MQTT broker to republish solar state to (for dashboards)
+    type: string
+    default: "host.docker.internal"
+  mqtt_publish_port:
+    description: External MQTT broker port
+    type: integer
+    default: 1883
+  mqtt_publish_user:
+    description: External MQTT broker username
+    type: string
+    default: "mqttuser"
+  mqtt_publish_pass:
+    description: External MQTT broker password
+    type: string
+    default: "sunspec2025"
+  mqtt_publish_topic:
+    description: Topic to publish solar state JSON to
+    type: string
+    default: "ems/solar/state"
 requires:
   energy_node_external_limits:
     interface: external_energy_limits
