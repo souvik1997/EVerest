@@ -214,7 +214,7 @@ def build_initial_registers() -> list[int]:
     regs[base + 1] = MODEL101_LENGTH  # Length
 
     # --- End marker ---
-    regs[END_OFFSET] = 0xFFFF
+    regs[END_OFFSET] = -1  # 0xFFFF as signed int16
     regs[END_OFFSET + 1] = 0x0000
 
     return regs
@@ -313,17 +313,14 @@ def update_model101_registers(regs: list[int], snap: dict):
 # MQTT client
 # ---------------------------------------------------------------------------
 
-def on_connect(client, userdata, flags, rc):
-    if rc == 0:
-        log.info("Connected to MQTT broker at %s:%s", MQTT_HOST, MQTT_PORT)
-        client.subscribe(TOPIC_POWERMETER)
-        client.subscribe(TOPIC_EVENT)
-        client.subscribe(TOPIC_TELEMETRY)
-        log.info("Subscribed to: %s", TOPIC_POWERMETER)
-        log.info("Subscribed to: %s", TOPIC_EVENT)
-        log.info("Subscribed to: %s", TOPIC_TELEMETRY)
-    else:
-        log.error("MQTT connection failed with code %d", rc)
+def on_connect(client, userdata, flags, reason_code, properties):
+    log.info("Connected to MQTT broker at %s:%s (rc=%s)", MQTT_HOST, MQTT_PORT, reason_code)
+    client.subscribe(TOPIC_POWERMETER)
+    client.subscribe(TOPIC_EVENT)
+    client.subscribe(TOPIC_TELEMETRY)
+    log.info("Subscribed to: %s", TOPIC_POWERMETER)
+    log.info("Subscribed to: %s", TOPIC_EVENT)
+    log.info("Subscribed to: %s", TOPIC_TELEMETRY)
 
 
 def on_message(client, userdata, msg):
@@ -348,7 +345,7 @@ def on_message(client, userdata, msg):
 
 
 def start_mqtt():
-    client = mqtt.Client(client_id="sunspec-bridge")
+    client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2, client_id="sunspec-bridge")
     client.on_connect = on_connect
     client.on_message = on_message
     client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=60)

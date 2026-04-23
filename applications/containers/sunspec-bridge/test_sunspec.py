@@ -111,7 +111,9 @@ def main():
 
     # --- Verify end marker ---
     r = client.read_holding_registers(122, 2)
-    if r.registers[0] == 0xFFFF and r.registers[1] == 0x0000:
+    if r.isError():
+        print(f"\nWARN: Could not read end marker at register 122: {r}")
+    elif r.registers[0] in (0xFFFF, 65535) and r.registers[1] == 0x0000:
         print(f"\n[OK] End marker found at register 122")
     else:
         print(f"\nWARN: Expected end marker (0xFFFF, 0x0000), got ({hex(r.registers[0])}, {hex(r.registers[1])})")
