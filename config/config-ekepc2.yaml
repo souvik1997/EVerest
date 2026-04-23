@@ -96,8 +96,8 @@ active_modules:
   solar_client:
     module: PySunSpecSolarClient
     config_module:
-      sunspec_host: "localhost"
-      sunspec_port: 5020
+      sunspec_host: "192.168.94.229"  # SolArk inverter via ESP32 SunSpec gateway
+      sunspec_port: 8502
       poll_interval_s: 3.0
       nominal_voltage_V: 240.0
     connections:
